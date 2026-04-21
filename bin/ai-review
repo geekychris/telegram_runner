@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# ai-review — Run AI code review on a GitHub PR from anywhere
+# Auto-bootstraps the review-tool venv on first run.
+#
+# Usage:
+#   ai-review https://github.com/owner/repo/pull/42
+#   ai-review https://github.com/owner/repo/pull/42 --dry-run
+#   ai-review https://github.com/owner/repo/pull/42 -v 2 --skills security,defects
+#
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+    DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+BIN_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+PROJECT_DIR="$(cd "$BIN_DIR/.." && pwd)"
+
+# review-tool lives in the sibling directory
+REVIEW_DIR="${REVIEW_TOOL_DIR:-$(cd "$PROJECT_DIR/../review_tool" && pwd 2>/dev/null || echo "")}"
+REVIEW_VENV="$REVIEW_DIR/.venv"
+REVIEW_CONFIG="$REVIEW_DIR/review_tool.json"
+
+if [[ -z "$REVIEW_DIR" || ! -d "$REVIEW_DIR" ]]; then
+    echo "[ai-review] Error: review_tool not found." >&2
+    echo "  Expected at: $PROJECT_DIR/../review_tool" >&2
+    echo "  Or set REVIEW_TOOL_DIR=/path/to/review_tool" >&2
+    exit 1
+fi
+
+# Auto-bootstrap review-tool
+if [[ ! -f "$REVIEW_VENV/bin/review-tool" ]]; then
+    echo "[ai-review] First run — installing review-tool..." >&2
+    python3 -m venv "$REVIEW_VENV" 2>/dev/null || true
+    "$REVIEW_VENV/bin/pip" install --quiet --upgrade pip
+    "$REVIEW_VENV/bin/pip" install --quiet -e "$REVIEW_DIR"
+    echo "[ai-review] Ready." >&2
+fi
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: ai-review <pr-url> [options]"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run              Preview review without posting to GitHub"
+    echo "  --verbosity, -v INT    0=summary, 1=normal, 2=detailed, 3=debug"
+    echo "  --skills, -s TEXT      Comma-separated skills"
+    echo "  --model, -m TEXT       Override Claude model"
+    echo "  --max-budget FLOAT     Max USD per skill"
+    echo "  --no-graph             Skip code_graph_search"
+    echo "  --guidance, -g PATH    Extra review guidance markdown file"
+    echo "  --output, -o PATH      Write review to file instead of posting"
+    exit 1
+fi
+
+# Auto-add config if exists and not specified
+CONFIG_ARGS=()
+if [[ -f "$REVIEW_CONFIG" && ! " $* " =~ " --config " && ! " $* " =~ " -c " ]]; then
+    CONFIG_ARGS=(--config "$REVIEW_CONFIG")
+fi
+
+exec "$REVIEW_VENV/bin/review-tool" review "$@" "${CONFIG_ARGS[@]}"

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# tg-bot — Start/manage the Telegram harness bot from anywhere
+# Auto-bootstraps the venv on first run. Works from any directory.
+#
+# Usage:
+#   tg-bot start              # start the bot daemon
+#   tg-bot setup              # interactive setup wizard
+#   tg-bot commands            # list available commands
+#   tg-bot config init         # generate default config
+#   tg-bot config check        # validate config
+#   tg-bot send "message"      # send a message
+#
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+    DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+BIN_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+PROJECT_DIR="$(cd "$BIN_DIR/.." && pwd)"
+
+VENV="$PROJECT_DIR/.venv"
+CONFIG="$PROJECT_DIR/telegram_harness.json"
+
+# Auto-bootstrap
+if [[ ! -f "$VENV/bin/telegram-harness" ]]; then
+    echo "[tg-bot] First run — installing..." >&2
+    python3 -m venv "$VENV" 2>/dev/null || true
+    "$VENV/bin/pip" install --quiet --upgrade pip
+    "$VENV/bin/pip" install --quiet -e "$PROJECT_DIR"
+    echo "[tg-bot] Ready." >&2
+fi
+
+# Auto-add config flag if config exists and not already specified
+CONFIG_ARGS=()
+if [[ -f "$CONFIG" ]]; then
+    # Only add --config if user didn't pass one
+    if [[ ! " $* " =~ " --config " && ! " $* " =~ " -c " ]]; then
+        # But only for commands that accept --config (start, send, config check)
+        case "${1:-}" in
+            start|send)
+                CONFIG_ARGS=(--config "$CONFIG")
+                ;;
+        esac
+    fi
+fi
+
+exec "$VENV/bin/telegram-harness" "$@" "${CONFIG_ARGS[@]}"
