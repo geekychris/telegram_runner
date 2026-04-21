@@ -6,3 +6,4 @@ dist/
 build/
 .env
 telegram_harness.json
+data/
