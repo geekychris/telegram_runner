@@ -228,6 +228,82 @@ def setup_wizard(
     )
 
 
+@app.command("send")
+def send_message(
+    message: str = typer.Argument(help="Message text to send. Use - to read from stdin."),
+    chat_id: Optional[str] = typer.Option(
+        None, "--chat", "-t", help="Chat ID to send to. Defaults to first allowed_chat_ids or TELEGRAM_CHAT_ID env var."
+    ),
+    config_path: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config JSON"
+    ),
+    silent: bool = typer.Option(False, "--silent", "-s", help="No output on success"),
+) -> None:
+    """Send a message to a Telegram chat via the bot.
+
+    Useful for notifications from scripts, CI/CD pipelines, cron jobs, etc.
+
+    Examples:
+        telegram-harness send "Deploy complete"
+        echo "Build failed" | telegram-harness send -
+        telegram-harness send "Disk at 90%" --chat 123456789
+    """
+    import httpx
+
+    config = load_config(config_path)
+    token = config.telegram.resolved_token()
+    if not token:
+        console.print("[red]TELEGRAM_BOT_TOKEN not set.[/red]")
+        raise SystemExit(1)
+
+    # Resolve chat ID
+    resolved_chat_id = None
+    if chat_id:
+        resolved_chat_id = chat_id
+    elif config.telegram.allowed_chat_ids:
+        resolved_chat_id = str(config.telegram.allowed_chat_ids[0])
+    else:
+        import os
+        resolved_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+    if not resolved_chat_id:
+        console.print(
+            "[red]No chat ID specified.[/red]\n"
+            "Use --chat, set TELEGRAM_CHAT_ID, or add allowed_chat_ids to config."
+        )
+        raise SystemExit(1)
+
+    # Read from stdin if message is "-"
+    if message == "-":
+        import sys
+        message = sys.stdin.read()
+
+    if not message.strip():
+        console.print("[red]Empty message.[/red]")
+        raise SystemExit(1)
+
+    # Send via Telegram Bot API
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": resolved_chat_id,
+        "text": message,
+    }
+
+    try:
+        r = httpx.post(url, json=payload, timeout=10)
+        data = r.json()
+        if data.get("ok"):
+            if not silent:
+                console.print(f"Sent to chat {resolved_chat_id}")
+        else:
+            desc = data.get("description", r.status_code)
+            console.print(f"[red]Failed: {desc}[/red]")
+            raise SystemExit(1)
+    except httpx.HTTPError as e:
+        console.print(f"[red]HTTP error: {e}[/red]")
+        raise SystemExit(1)
+
+
 def main() -> None:
     app()
 

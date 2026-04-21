@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 telegram-harness = "telegram_harness.__main__:main"
+tg-send = "telegram_harness.send_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/telegram_harness"]
