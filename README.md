@@ -34,25 +34,29 @@ Extensible Telegram bot that lets you run commands remotely from your phone. Sen
 ## Quick Start
 
 ```bash
-# 1. Clone and install
+# 1. Clone
 git clone git@github.com:geekychris/telegram_runner.git
 cd telegram_runner
-./run.sh setup
 
-# 2. Run the interactive setup wizard
-telegram-harness setup
+# 2. Install globally (symlinks tg-send, tg-bot, ai-review to ~/bin)
+./install.sh
 
-# 3. Start the bot
-./run.sh
+# 3. Interactive setup (creates bot, generates config)
+tg-bot setup
+
+# 4. Start the bot
+tg-bot start
 ```
 
-Or in three commands if you already have a bot token:
+Then from **any directory**:
 
 ```bash
-./run.sh setup
-export TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
-./run.sh
+tg-send "Hello from anywhere"
+ai-review https://github.com/owner/repo/pull/42
+tg-bot start
 ```
+
+All scripts auto-bootstrap their venv on first run — no manual setup needed.
 
 ---
 
@@ -133,7 +137,7 @@ Now when users type `/` in your bot's chat, they see the command menu.
 
 ```bash
 export TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
-./run.sh
+tg-bot start
 ```
 
 Open Telegram, find your bot, and send `/help`.
@@ -151,11 +155,23 @@ Open Telegram, find your bot, and send `/help`.
 | claude CLI | For `/ask` | `npm install -g @anthropic-ai/claude-code` |
 | gh CLI | For `/review` | `brew install gh` |
 
-### Install via Script
+### Install Globally (Recommended)
 
 ```bash
-./run.sh setup
+./install.sh            # symlinks to ~/bin, bootstraps venvs
+./install.sh /usr/local/bin   # or specify a different target
+./install.sh --uninstall      # remove symlinks
 ```
+
+This installs three commands onto your PATH:
+
+| Command | What it does |
+|---------|-------------|
+| `tg-send` | Send Telegram messages from any script |
+| `tg-bot` | Start/manage the bot daemon |
+| `ai-review` | Run AI code review on a GitHub PR |
+
+All three auto-bootstrap their Python venv on first run. No `source activate` needed.
 
 ### Install Manually
 
@@ -164,6 +180,16 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 telegram-harness config init
+```
+
+### Project Layout
+
+```
+bin/
+├── tg-send       Portable script — works from any directory via symlink
+├── tg-bot        Bot management — start, setup, config, send
+└── ai-review     PR review — wraps review-tool with auto-config
+install.sh        Symlinks bin/* to PATH, bootstraps venvs
 ```
 
 ---
@@ -330,38 +356,30 @@ To find your chat ID: message your bot, then check the bot's log output — it s
 
 ```bash
 # Send a message
-./tg-send.sh "Deploy complete"
+tg-send "Deploy complete"
 
 # Pipe command output
-df -h | ./tg-send.sh -
+df -h | tg-send -
 
 # Use in scripts
-make deploy && ./tg-send.sh "Deploy succeeded" || ./tg-send.sh "Deploy FAILED"
+make deploy && tg-send "Deploy succeeded" || tg-send "Deploy FAILED"
 
 # Send to a specific chat
-./tg-send.sh -t 123456789 "Alert: disk at 95%"
+tg-send -t 123456789 "Alert: disk at 95%"
 
 # Silent mode (no output on success)
-./tg-send.sh -s "Cron job finished"
+tg-send -s "Cron job finished"
 
 # From a cron job
-*/5 * * * * /path/to/tg-send.sh -s "Heartbeat: $(date)"
+*/5 * * * * /Users/you/bin/tg-send -s "Heartbeat: $(date)"
 ```
-
-### Using from Anywhere
 
 You can also use the full CLI:
 
 ```bash
-telegram-harness send "Deploy complete"
-telegram-harness send "Alert" --chat 123456789
-echo "output" | telegram-harness send -
-```
-
-Or symlink `tg-send` onto your PATH for global access:
-
-```bash
-ln -s /path/to/telegram_harness/tg-send.sh /usr/local/bin/tg-send
+tg-bot send "Deploy complete"
+tg-bot send "Alert" --chat 123456789
+echo "output" | tg-bot send -
 ```
 
 ### Integration Examples
@@ -819,7 +837,7 @@ The command is automatically available as `/deploy` in Telegram. No other change
 ```mermaid
 graph TD
     subgraph Options
-        A[Direct ./run.sh] -->|simplest| RUN[Bot Process]
+        A["Direct: tg-bot start"] -->|simplest| RUN[Bot Process]
         B[systemd service] -->|recommended| RUN
         C[Docker container] -->|portable| RUN
     end
@@ -834,7 +852,7 @@ graph TD
 
 ```bash
 export TELEGRAM_BOT_TOKEN=your-token
-./run.sh
+tg-bot start
 ```
 
 ### Run as systemd Service
