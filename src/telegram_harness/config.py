@@ -72,7 +72,26 @@ def load_config(path: Path | str | None = None) -> AppConfig:
         path = Path(path)
     if not path.exists():
         return AppConfig()
-    raw = json.loads(path.read_text())
+
+    text = path.read_text()
+
+    # Pre-process: expand ${ENV_VAR} in the raw text before JSON parsing.
+    # This handles env vars inside non-string positions (e.g., arrays).
+    text = re.sub(
+        r"\$\{([^}]+)}",
+        lambda m: _interpolate_env(m.group(0)),
+        text,
+    )
+
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Invalid JSON in {path} (line {e.lineno}, col {e.colno}): {e.msg}\n"
+            f"Hint: ${'{'}ENV_VAR{'}'} interpolation only works in string values. "
+            f"For arrays like allowed_chat_ids, set the value directly or leave empty."
+        ) from e
+
     interpolated = _interpolate_recursive(raw)
     return AppConfig.model_validate(interpolated)
 
