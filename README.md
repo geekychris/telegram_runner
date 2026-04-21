@@ -57,6 +57,20 @@ export TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
 
 ### 1. Create the Bot
 
+```mermaid
+sequenceDiagram
+    participant You
+    participant BotFather as @BotFather
+
+    You->>BotFather: /newbot
+    BotFather-->>You: Choose a display name
+    You->>BotFather: My CI Bot
+    BotFather-->>You: Choose a username (must end in 'bot')
+    You->>BotFather: my_ci_runner_bot
+    BotFather-->>You: ✅ Token: 123456789:ABCdefGHI...
+    Note over You: Save this token!
+```
+
 1. Open Telegram on your phone or desktop
 2. Search for **@BotFather** (the official Telegram bot for creating bots)
 3. Send: `/newbot`
@@ -202,7 +216,7 @@ telegram-harness config init
 | `review_tool.default_args` | Extra args passed to every review invocation. |
 | `claude.model` | Claude model for `/ask` (sonnet, opus, haiku). |
 | `claude.max_budget_usd` | Max spend per `/ask` invocation. |
-| `run_commands.allowed_commands` | Map of name → shell command. Only these can be executed via `/run`. |
+| `run_commands.allowed_commands` | Map of name -> shell command. Only these can be executed via `/run`. |
 
 ### Environment Variable Interpolation
 
@@ -286,35 +300,292 @@ Show currently running background tasks (commands that haven't finished yet).
 
 ## Architecture
 
-### Overview
+### System Overview
 
+```mermaid
+graph TB
+    subgraph Telegram Cloud
+        TG[Telegram API]
+    end
+
+    subgraph Your Server
+        BOT[bot.py<br/>Long-polling daemon]
+        AUTH[Auth Check<br/>user/chat allowlists]
+        REG[CommandRegistry]
+        TRACK[Task Tracker<br/>running tasks]
+
+        subgraph Commands
+            REV[/review<br/>review.py]
+            STAT[/status<br/>status.py]
+            RUN[/run<br/>run.py]
+            ASK[/ask<br/>ask.py]
+            CUSTOM[Your custom<br/>commands...]
+        end
+
+        subgraph External Tools
+            RT[review-tool CLI]
+            CLAUDE[claude CLI]
+            SHELL[Shell commands]
+            CGS[code_graph_search]
+            GH[gh CLI]
+        end
+    end
+
+    subgraph GitHub
+        PR[Pull Requests]
+    end
+
+    TG <-->|HTTPS long-poll| BOT
+    BOT --> AUTH
+    AUTH --> REG
+    REG --> REV & STAT & RUN & ASK & CUSTOM
+    BOT --- TRACK
+    REV -->|subprocess| RT
+    ASK -->|subprocess| CLAUDE
+    RUN -->|subprocess| SHELL
+    RT --> CGS
+    RT --> GH
+    GH --> PR
 ```
-Telegram Cloud
-    │
-    │ (HTTPS long-polling)
-    ▼
-┌─────────────────────────────────────┐
-│          bot.py (daemon)            │
-│                                     │
-│  ┌─────────────┐  ┌─────────────┐  │
-│  │  Auth Check  │  │ Task Tracker│  │
-│  └──────┬──────┘  └─────────────┘  │
-│         │                           │
-│         ▼                           │
-│  ┌─────────────────────────────┐   │
-│  │     CommandRegistry         │   │
-│  │  ┌────────┬────────┬─────┐  │   │
-│  │  │/review │/status │/run │  │   │
-│  │  │/ask    │/help   │/tasks│  │   │
-│  │  └────────┴────────┴─────┘  │   │
-│  └──────┬──────────────────────┘   │
-│         │                           │
-│         ▼                           │
-│  ┌─────────────────────────────┐   │
-│  │   async subprocess exec     │   │
-│  │  (review-tool, claude, sh)  │   │
-│  └─────────────────────────────┘   │
-└─────────────────────────────────────┘
+
+### Command Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User (Telegram)
+    participant B as Bot Daemon
+    participant A as Auth Check
+    participant R as CommandRegistry
+    participant C as Command Handler
+    participant T as Task Tracker
+    participant E as External Tool
+
+    U->>B: /review https://...pull/42
+    B->>A: is_authorized(user, chat)?
+    A-->>B: yes
+
+    B->>R: lookup("review")
+    R-->>B: ReviewCommand
+
+    B->>C: validate_args("/review ...")
+    C-->>B: ok
+
+    B->>U: "Working on it..."
+    B->>T: create RunningTask
+
+    B->>C: execute(args, config)
+    C->>E: subprocess(review-tool ...)
+    Note over E: Runs for 1-10 min
+
+    E-->>C: exit code + stdout
+    C-->>B: TaskResult
+
+    B->>T: remove RunningTask
+    B->>U: "Review posted (45.2s)"
+    B->>U: "https://...pull/42"
+```
+
+### Module Structure
+
+```mermaid
+graph LR
+    subgraph CLI["__main__.py (CLI)"]
+        START[start]
+        SETUP[setup]
+        CMDS[commands]
+        CFG[config]
+    end
+
+    subgraph Core
+        BOT[bot.py<br/>Telegram daemon]
+        CONFIG[config.py<br/>Pydantic models]
+        MODELS[models.py<br/>TaskResult, etc.]
+    end
+
+    subgraph CommandFramework["commands/"]
+        INIT["__init__.py<br/>BaseCommand ABC<br/>CommandRegistry"]
+        REVIEW[review.py]
+        STATUS[status.py]
+        RUN_CMD[run.py]
+        ASK_CMD[ask.py]
+    end
+
+    START --> BOT
+    SETUP --> CONFIG
+    BOT --> INIT
+    BOT --> CONFIG
+    BOT --> MODELS
+    INIT --> REVIEW & STATUS & RUN_CMD & ASK_CMD
+    REVIEW --> MODELS
+    STATUS --> MODELS
+    RUN_CMD --> MODELS
+    ASK_CMD --> MODELS
+```
+
+### Config Loading
+
+```mermaid
+flowchart LR
+    A[telegram_harness.json] -->|load| B[JSON parse]
+    B -->|interpolate| C["${ENV_VAR} replacement"]
+    C -->|validate| D[Pydantic AppConfig]
+    D --> E[TelegramConfig]
+    D --> F[ReviewToolConfig]
+    D --> G[ClaudeConfig]
+    D --> H[RunCommandConfig]
+```
+
+### Security Model
+
+```mermaid
+flowchart TD
+    MSG[Incoming Telegram Message] --> AUTH{Auth Check}
+
+    AUTH -->|"allowed_user_ids
+    not empty"| UID{user_id in list?}
+    AUTH -->|"allowed_chat_ids
+    not empty"| CID{chat_id in list?}
+    AUTH -->|both empty| WARN[Allow all - DANGEROUS]
+
+    UID -->|no| DENY[Deny + log warning]
+    UID -->|yes| PASS
+    CID -->|no| DENY
+    CID -->|yes| PASS
+
+    PASS[Authorized] --> ROUTE{Route command}
+
+    ROUTE -->|/run| ALLOWLIST{Command in<br/>allowed_commands?}
+    ALLOWLIST -->|no| REJECT[Reject - unknown command]
+    ALLOWLIST -->|yes| EXEC[Execute from allowlist]
+
+    ROUTE -->|/review| REVIEW[Run review-tool]
+    ROUTE -->|/ask| ASK[Run claude CLI]
+    ROUTE -->|/status| STATUS[Read-only checks]
+
+    style DENY fill:#f66,color:#fff
+    style REJECT fill:#f66,color:#fff
+    style WARN fill:#fa0,color:#fff
+    style PASS fill:#6f6,color:#000
+```
+
+### Review Command — End-to-End Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant TG as Telegram
+    participant BOT as Bot Daemon
+    participant RT as review-tool
+    participant CGS as code_graph_search
+    participant CL as Claude Code
+    participant GH as GitHub
+
+    U->>TG: /review github.com/.../pull/42
+    TG->>BOT: Update (long-poll)
+    BOT->>TG: "Working on it..."
+    TG->>U: "Working on it..."
+
+    BOT->>RT: subprocess exec
+
+    RT->>GH: gh pr view (metadata)
+    GH-->>RT: PR title, files, diff
+    RT->>GH: gh pr checkout
+    GH-->>RT: repo on PR branch
+
+    RT->>CGS: Start server (dynamic port)
+    CGS-->>RT: Indexed PR branch
+
+    loop For each skill
+        RT->>CGS: Graph queries (callers, callees)
+        CGS-->>RT: Analysis context
+        RT->>CL: claude -p (review prompt)
+        CL-->>RT: Findings + suggestions
+    end
+
+    RT->>CGS: Stop server
+    RT->>GH: gh pr review (post findings)
+    RT->>GH: gh api (inline suggestions)
+
+    RT-->>BOT: exit code + summary
+
+    BOT->>TG: "Review posted (92.3s)"
+    TG->>U: "Review posted (92.3s)"
+    BOT->>TG: "github.com/.../pull/42"
+    TG->>U: "github.com/.../pull/42"
+```
+
+### Extension Point — Adding a Command
+
+```mermaid
+classDiagram
+    class BaseCommand {
+        <<abstract>>
+        +name: str*
+        +description: str*
+        +usage: str
+        +is_long_running: bool
+        +validate_args(args: str) str|None
+        +execute(args: str, config: AppConfig) TaskResult*
+    }
+
+    class CommandRegistry {
+        -_commands: dict
+        +register(command: BaseCommand)$
+        +get(name: str) BaseCommand$
+        +all_commands() dict$
+    }
+
+    class TaskResult {
+        +status: TaskStatus
+        +message: str
+        +detail: str
+        +duration_seconds: float
+        +url: str
+    }
+
+    class ReviewCommand {
+        +name = "review"
+        +is_long_running = True
+        +execute() TaskResult
+    }
+
+    class StatusCommand {
+        +name = "status"
+        +execute() TaskResult
+    }
+
+    class RunCommand {
+        +name = "run"
+        +is_long_running = True
+        +execute() TaskResult
+    }
+
+    class AskCommand {
+        +name = "ask"
+        +is_long_running = True
+        +execute() TaskResult
+    }
+
+    class YourCommand {
+        +name = "deploy"
+        +execute() TaskResult
+    }
+
+    BaseCommand <|-- ReviewCommand
+    BaseCommand <|-- StatusCommand
+    BaseCommand <|-- RunCommand
+    BaseCommand <|-- AskCommand
+    BaseCommand <|-- YourCommand : extend
+
+    CommandRegistry o-- BaseCommand : registers
+
+    ReviewCommand ..> TaskResult : returns
+    StatusCommand ..> TaskResult : returns
+    RunCommand ..> TaskResult : returns
+    AskCommand ..> TaskResult : returns
+    YourCommand ..> TaskResult : returns
+
+    style YourCommand fill:#afa,stroke:#0a0
 ```
 
 ### Module Overview
@@ -331,40 +602,6 @@ src/telegram_harness/
     ├── status.py        /status — system health checks
     ├── run.py           /run — predefined shell commands
     └── ask.py           /ask — Claude Code CLI questions
-```
-
-### How a Command Executes
-
-1. **Telegram sends update** → `python-telegram-bot` receives it via long-polling
-2. **Auth check** → `_is_authorized()` checks user/chat against allowlists
-3. **Route to handler** → `CommandRegistry` looks up the command by name
-4. **Validate args** → `command.validate_args(args)` checks input
-5. **Send acknowledgment** → for long-running commands, reply "Working on it..."
-6. **Track task** → create `RunningTask` entry (visible via `/tasks`)
-7. **Execute** → `command.execute(args, config)` runs asynchronously
-8. **Reply** → format `TaskResult` and send back to the chat
-9. **Cleanup** → remove from running tasks
-
-### Message Flow
-
-For a long-running command like `/review`:
-
-```
-User                    Bot                         review-tool
-  │                      │                              │
-  ├─ /review <url> ────►│                              │
-  │                      ├─ "⏳ Working on it..." ────►│
-  │                      │                              │
-  │                      ├─ subprocess.exec ──────────►│
-  │                      │                              ├─ fetch PR
-  │                      │                              ├─ checkout
-  │                      │                              ├─ start graph
-  │                      │                              ├─ run skills
-  │                      │                              ├─ post review
-  │                      │◄─ exit code + stdout ────────┤
-  │                      │                              │
-  │◄─ "✅ /review" ──────┤                              │
-  │◄─ "🔗 <pr-url>" ────┤                              │
 ```
 
 ---
@@ -469,11 +706,27 @@ The command is automatically available as `/deploy` in Telegram. No other change
 | `message` | `str` | Short summary sent as the reply |
 | `detail` | `str` | Full output (sent as code block, truncated to 4000 chars) |
 | `duration_seconds` | `float` | Execution time (shown in reply) |
-| `url` | `str` | Optional link (sent as a separate "🔗" message) |
+| `url` | `str` | Optional link (sent as a separate message) |
 
 ---
 
 ## Deployment
+
+### Deployment Options
+
+```mermaid
+graph TD
+    subgraph Options
+        A[Direct ./run.sh] -->|simplest| RUN[Bot Process]
+        B[systemd service] -->|recommended| RUN
+        C[Docker container] -->|portable| RUN
+    end
+
+    RUN <-->|long-poll| TG[Telegram Cloud]
+    RUN -->|subprocess| TOOLS[review-tool, claude, shell]
+
+    style B fill:#afa,stroke:#0a0
+```
 
 ### Run Directly
 
@@ -551,6 +804,18 @@ docker run -d \
 ## Security
 
 ### Access Control
+
+```mermaid
+flowchart LR
+    MSG[Message] --> CHECK{Auth}
+    CHECK -->|user in allowlist| OK[Execute]
+    CHECK -->|user NOT in allowlist| DENY[Reject]
+    CHECK -->|allowlist empty| WARN[Allow all]
+
+    style DENY fill:#f66,color:#fff
+    style WARN fill:#fa0,color:#fff
+    style OK fill:#6f6,color:#000
+```
 
 **Always configure access restrictions in production:**
 
