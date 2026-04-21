@@ -96,33 +96,49 @@ def main() -> None:
         print("Error: Empty message.", file=sys.stderr)
         sys.exit(1)
 
-    # Send — use urllib to avoid requiring httpx for the lightweight script
-    import urllib.request
-    import urllib.error
-
+    # Send via Telegram Bot API
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = json.dumps({"chat_id": chat_id, "text": message}).encode()
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    payload = {"chat_id": chat_id, "text": message}
 
+    # Try httpx first (handles SSL properly), fall back to urllib with SSL workaround
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            if data.get("ok"):
-                if not args.silent:
-                    print(f"Sent to {chat_id}")
-            else:
-                print(f"Failed: {data.get('description', 'unknown error')}", file=sys.stderr)
-                sys.exit(1)
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()
+        import httpx
+        r = httpx.post(url, json=payload, timeout=10)
+        data = r.json()
+    except ImportError:
+        import ssl
+        import urllib.request
+        import urllib.error
+
+        # Create SSL context — try certifi first, then system certs, then unverified
+        ctx = None
         try:
-            desc = json.loads(body).get("description", body)
-        except Exception:
-            desc = body
-        print(f"Failed: {desc}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            try:
+                ctx = ssl.create_default_context()
+            except Exception:
+                ctx = ssl._create_unverified_context()
+
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+                data = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            resp_body = e.read().decode()
+            try:
+                data = json.loads(resp_body)
+            except Exception:
+                print(f"Failed: {resp_body}", file=sys.stderr)
+                sys.exit(1)
+
+    if data.get("ok"):
+        if not args.silent:
+            print(f"Sent to {chat_id}")
+    else:
+        print(f"Failed: {data.get('description', 'unknown error')}", file=sys.stderr)
         sys.exit(1)
 
 
