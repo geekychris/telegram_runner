@@ -9,6 +9,8 @@ Extensible Telegram bot that lets you run commands remotely from your phone. Sen
 - **Shell commands** — `/run <name>` executes commands from a configurable allowlist
 - **Ask Claude** — `/ask <question>` sends a question to Claude Code CLI and returns the answer
 - **Background tasks** — long-running commands execute asynchronously; `/tasks` shows what's running
+- **Cancel tasks** — `/cancel <id>` stops long-running tasks mid-execution
+- **Send from scripts** — `tg-send` CLI lets any shell script, cron job, or CI pipeline push messages to your Telegram
 - **Access control** — restrict the bot to specific Telegram user IDs or chat IDs
 - **Extensible** — add new commands by subclassing `BaseCommand`
 
@@ -22,6 +24,7 @@ Extensible Telegram bot that lets you run commands remotely from your phone. Sen
 - [Configuration](#configuration)
 - [Commands](#commands)
 - [Architecture](#architecture)
+- [Sending Messages from Scripts (tg-send)](#sending-messages-from-scripts-tg-send)
 - [Extending — Writing Custom Commands](#extending--writing-custom-commands)
 - [Deployment](#deployment)
 - [Security](#security)
@@ -294,7 +297,95 @@ List all available commands with descriptions.
 
 ### `/tasks`
 
-Show currently running background tasks (commands that haven't finished yet).
+Show running tasks with elapsed time, plus the last 5 completed/failed/cancelled tasks.
+
+### `/cancel [task-id]`
+
+Cancel a running background task. Kills the subprocess (SIGTERM, then SIGKILL) and notifies you.
+
+```
+/cancel              — cancel the only running task (if just one)
+/cancel abc123       — cancel a specific task by ID
+```
+
+---
+
+## Sending Messages from Scripts (tg-send)
+
+The `tg-send` CLI lets you push messages to your Telegram from any shell script, cron job, or CI pipeline. It doesn't require the bot daemon to be running — it calls the Telegram API directly.
+
+### Setup
+
+```bash
+# Set your bot token and chat ID
+export TELEGRAM_BOT_TOKEN=123456789:ABCdefGHI...
+export TELEGRAM_CHAT_ID=your_chat_id
+
+# Or these will be read from telegram_harness.json automatically
+```
+
+To find your chat ID: message your bot, then check the bot's log output — it shows the chat ID on every incoming message. Or use **@getidsbot**.
+
+### Usage
+
+```bash
+# Send a message
+./tg-send.sh "Deploy complete"
+
+# Pipe command output
+df -h | ./tg-send.sh -
+
+# Use in scripts
+make deploy && ./tg-send.sh "Deploy succeeded" || ./tg-send.sh "Deploy FAILED"
+
+# Send to a specific chat
+./tg-send.sh -t 123456789 "Alert: disk at 95%"
+
+# Silent mode (no output on success)
+./tg-send.sh -s "Cron job finished"
+
+# From a cron job
+*/5 * * * * /path/to/tg-send.sh -s "Heartbeat: $(date)"
+```
+
+### Using from Anywhere
+
+You can also use the full CLI:
+
+```bash
+telegram-harness send "Deploy complete"
+telegram-harness send "Alert" --chat 123456789
+echo "output" | telegram-harness send -
+```
+
+Or symlink `tg-send` onto your PATH for global access:
+
+```bash
+ln -s /path/to/telegram_harness/tg-send.sh /usr/local/bin/tg-send
+```
+
+### Integration Examples
+
+```mermaid
+graph LR
+    subgraph Your Scripts
+        CRON["Cron job"]
+        CI["CI/CD pipeline"]
+        DEPLOY["Deploy script"]
+        MONITOR["Monitoring"]
+    end
+
+    TGSEND["tg-send"]
+    API["Telegram API"]
+    PHONE["Your Phone"]
+
+    CRON -->|"tg-send 'backup done'"| TGSEND
+    CI -->|"tg-send 'build passed'"| TGSEND
+    DEPLOY -->|"tg-send 'deployed v2.1'"| TGSEND
+    MONITOR -->|"tg-send 'disk 95%'"| TGSEND
+    TGSEND -->|HTTPS| API
+    API --> PHONE
+```
 
 ---
 
@@ -331,11 +422,17 @@ graph TB
         end
     end
 
+        subgraph SendCLI["tg-send CLI"]
+            TGSEND2["tg-send — scripts, cron, CI"]
+        end
+    end
+
     subgraph GH_Cloud["GitHub"]
         PR["Pull Requests"]
     end
 
     TG <-->|"HTTPS long-poll"| BOT
+    TGSEND2 -->|"HTTPS direct"| TG
     BOT --> AUTH
     AUTH --> REG
     REG --> REV
@@ -596,10 +693,11 @@ classDiagram
 
 ```
 src/telegram_harness/
-├── __main__.py          CLI entry point (start, commands, config, setup)
-├── bot.py               Telegram bot daemon — auth, routing, task tracking, replies
+├── __main__.py          CLI: start, commands, config, setup, send
+├── send_cli.py          tg-send standalone CLI (lightweight, stdlib-only fallback)
+├── bot.py               Telegram bot daemon — auth, routing, background tasks, cancel
 ├── config.py            Pydantic config with ${ENV_VAR} interpolation
-├── models.py            TaskResult, RunningTask, TaskStatus
+├── models.py            TaskResult, RunningTask (with subprocess + asyncio handles)
 └── commands/
     ├── __init__.py      BaseCommand ABC + CommandRegistry
     ├── review.py        /review — invokes review-tool CLI
