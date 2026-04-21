@@ -10,7 +10,7 @@ import time
 
 from telegram_harness.commands import BaseCommand, CommandRegistry
 from telegram_harness.config import AppConfig
-from telegram_harness.models import TaskResult, TaskStatus
+from telegram_harness.models import RunningTask, TaskResult, TaskStatus
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class StatusCommand(BaseCommand):
     def usage(self) -> str:
         return "/status"
 
-    async def execute(self, args: str, config: AppConfig) -> TaskResult:
+    async def execute(self, args: str, config: AppConfig, task: RunningTask | None = None) -> TaskResult:
         lines = ["**System Status**\n"]
 
         # System info

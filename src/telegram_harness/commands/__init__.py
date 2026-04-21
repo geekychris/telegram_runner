@@ -12,7 +12,7 @@ import logging
 from abc import ABC, abstractmethod
 
 from telegram_harness.config import AppConfig
-from telegram_harness.models import TaskResult
+from telegram_harness.models import RunningTask, TaskResult
 
 log = logging.getLogger(__name__)
 
@@ -38,12 +38,19 @@ class BaseCommand(ABC):
         return f"/{self.name}"
 
     @abstractmethod
-    async def execute(self, args: str, config: AppConfig) -> TaskResult:
+    async def execute(
+        self,
+        args: str,
+        config: AppConfig,
+        task: RunningTask | None = None,
+    ) -> TaskResult:
         """Execute the command with the given arguments.
 
         Args:
             args: Everything after the command name.
             config: Application configuration.
+            task: The RunningTask tracking this execution. Long-running commands
+                  should set task.subprocess so the task can be cancelled.
 
         Returns:
             TaskResult with status, message, and optional detail/url.
@@ -56,7 +63,7 @@ class BaseCommand(ABC):
 
     @property
     def is_long_running(self) -> bool:
-        """If True, the bot sends a 'working on it' message before executing."""
+        """If True, the command runs as a background task so the bot stays responsive."""
         return False
 
 

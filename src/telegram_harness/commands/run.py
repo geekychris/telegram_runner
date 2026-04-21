@@ -8,7 +8,7 @@ import time
 
 from telegram_harness.commands import BaseCommand, CommandRegistry
 from telegram_harness.config import AppConfig
-from telegram_harness.models import TaskResult, TaskStatus
+from telegram_harness.models import RunningTask, TaskResult, TaskStatus
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class RunCommand(BaseCommand):
             return "Please specify a command.\nUsage: /run <command-name>\nUse /run list to see available commands."
         return None
 
-    async def execute(self, args: str, config: AppConfig) -> TaskResult:
+    async def execute(self, args: str, config: AppConfig, task: RunningTask | None = None) -> TaskResult:
         if not config.run_commands.enabled:
             return TaskResult(
                 status=TaskStatus.FAILED,
@@ -87,6 +87,8 @@ class RunCommand(BaseCommand):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
+            if task:
+                task.subprocess = proc
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
             output = stdout.decode() if stdout else ""
             elapsed = time.monotonic() - start

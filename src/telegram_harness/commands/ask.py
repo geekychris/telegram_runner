@@ -9,7 +9,7 @@ import time
 
 from telegram_harness.commands import BaseCommand, CommandRegistry
 from telegram_harness.config import AppConfig
-from telegram_harness.models import TaskResult, TaskStatus
+from telegram_harness.models import RunningTask, TaskResult, TaskStatus
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class AskCommand(BaseCommand):
             return "Please provide a question.\nUsage: /ask What does the auth middleware do?"
         return None
 
-    async def execute(self, args: str, config: AppConfig) -> TaskResult:
+    async def execute(self, args: str, config: AppConfig, task: RunningTask | None = None) -> TaskResult:
         if not config.claude.enabled:
             return TaskResult(
                 status=TaskStatus.FAILED,
@@ -63,6 +63,8 @@ class AskCommand(BaseCommand):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            if task:
+                task.subprocess = proc
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             elapsed = time.monotonic() - start
 

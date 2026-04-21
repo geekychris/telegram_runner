@@ -9,7 +9,7 @@ import time
 
 from telegram_harness.commands import BaseCommand, CommandRegistry
 from telegram_harness.config import AppConfig
-from telegram_harness.models import TaskResult, TaskStatus
+from telegram_harness.models import RunningTask, TaskResult, TaskStatus
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,12 @@ class ReviewCommand(BaseCommand):
             return f"No valid GitHub PR URL found in: {args}"
         return None
 
-    async def execute(self, args: str, config: AppConfig) -> TaskResult:
+    async def execute(
+        self,
+        args: str,
+        config: AppConfig,
+        task: RunningTask | None = None,
+    ) -> TaskResult:
         if not config.review_tool.enabled:
             return TaskResult(
                 status=TaskStatus.FAILED,
@@ -67,6 +72,10 @@ class ReviewCommand(BaseCommand):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
+            # Register subprocess so /cancel can kill it
+            if task:
+                task.subprocess = proc
+
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=900)
             output = stdout.decode() if stdout else ""
             elapsed = time.monotonic() - start

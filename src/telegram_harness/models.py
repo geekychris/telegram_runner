@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -12,6 +13,7 @@ class TaskStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -38,3 +40,10 @@ class RunningTask:
     started_at: datetime = field(default_factory=datetime.now)
     status: TaskStatus = TaskStatus.RUNNING
     result: TaskResult | None = None
+    # asyncio handles for cancellation
+    asyncio_task: asyncio.Task | None = field(default=None, repr=False)
+    subprocess: asyncio.subprocess.Process | None = field(default=None, repr=False)
+
+    @property
+    def elapsed_seconds(self) -> float:
+        return (datetime.now() - self.started_at).total_seconds()
