@@ -304,45 +304,49 @@ Show currently running background tasks (commands that haven't finished yet).
 
 ```mermaid
 graph TB
-    subgraph Telegram Cloud
-        TG[Telegram API]
+    subgraph Telegram_Cloud["Telegram Cloud"]
+        TG["Telegram API"]
     end
 
-    subgraph Your Server
-        BOT[bot.py<br/>Long-polling daemon]
-        AUTH[Auth Check<br/>user/chat allowlists]
-        REG[CommandRegistry]
-        TRACK[Task Tracker<br/>running tasks]
+    subgraph Server["Your Server"]
+        BOT["bot.py — Long-polling daemon"]
+        AUTH["Auth Check — user and chat allowlists"]
+        REG["CommandRegistry"]
+        TRACK["Task Tracker — running tasks"]
 
-        subgraph Commands
-            REV[/review<br/>review.py]
-            STAT[/status<br/>status.py]
-            RUN[/run<br/>run.py]
-            ASK[/ask<br/>ask.py]
-            CUSTOM[Your custom<br/>commands...]
+        subgraph Cmds["Commands"]
+            REV["review — review.py"]
+            STAT["status — status.py"]
+            RUNCMD["run — run.py"]
+            ASKCMD["ask — ask.py"]
+            CUSTOM["Your custom commands"]
         end
 
-        subgraph External Tools
-            RT[review-tool CLI]
-            CLAUDE[claude CLI]
-            SHELL[Shell commands]
-            CGS[code_graph_search]
-            GH[gh CLI]
+        subgraph Tools["External Tools"]
+            RT["review-tool CLI"]
+            CLAUDE["claude CLI"]
+            SHELL["Shell commands"]
+            CGS["code_graph_search"]
+            GH["gh CLI"]
         end
     end
 
-    subgraph GitHub
-        PR[Pull Requests]
+    subgraph GH_Cloud["GitHub"]
+        PR["Pull Requests"]
     end
 
-    TG <-->|HTTPS long-poll| BOT
+    TG <-->|"HTTPS long-poll"| BOT
     BOT --> AUTH
     AUTH --> REG
-    REG --> REV & STAT & RUN & ASK & CUSTOM
+    REG --> REV
+    REG --> STAT
+    REG --> RUNCMD
+    REG --> ASKCMD
+    REG --> CUSTOM
     BOT --- TRACK
-    REV -->|subprocess| RT
-    ASK -->|subprocess| CLAUDE
-    RUN -->|subprocess| SHELL
+    REV -->|"subprocess"| RT
+    ASKCMD -->|"subprocess"| CLAUDE
+    RUNCMD -->|"subprocess"| SHELL
     RT --> CGS
     RT --> GH
     GH --> PR
