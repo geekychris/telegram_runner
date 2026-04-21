@@ -1,0 +1,27 @@
+{
+  "telegram": {
+    "bot_token": "${TELEGRAM_BOT_TOKEN}",
+    "allowed_chat_ids": [],
+    "allowed_user_ids": []
+  },
+  "review_tool": {
+    "enabled": true,
+    "review_tool_path": "review-tool",
+    "default_args": []
+  },
+  "claude": {
+    "enabled": true,
+    "model": "sonnet",
+    "max_budget_usd": 0.50
+  },
+  "run_commands": {
+    "enabled": true,
+    "allowed_commands": {
+      "deploy-staging": "cd /app && git pull && make deploy-staging",
+      "run-tests": "cd /app && make test",
+      "disk-usage": "df -h",
+      "git-status": "cd /app && git status && git log --oneline -5"
+    }
+  },
+  "work_dir": "/tmp/telegram_harness"
+}
