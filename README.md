@@ -67,15 +67,15 @@ All scripts auto-bootstrap their venv on first run — no manual setup needed.
 ```mermaid
 sequenceDiagram
     participant You
-    participant BotFather as @BotFather
+    participant BF as BotFather
 
-    You->>BotFather: /newbot
-    BotFather-->>You: Choose a display name
-    You->>BotFather: My CI Bot
-    BotFather-->>You: Choose a username (must end in 'bot')
-    You->>BotFather: my_ci_runner_bot
-    BotFather-->>You: ✅ Token: 123456789:ABCdefGHI...
-    Note over You: Save this token!
+    You->>BF: /newbot
+    BF-->>You: Choose a display name
+    You->>BF: My CI Bot
+    BF-->>You: Choose a username ending in bot
+    You->>BF: my_ci_runner_bot
+    BF-->>You: Token 123456789 ABCdefGHI
+    Note over You: Save this token
 ```
 
 1. Open Telegram on your phone or desktop
@@ -386,9 +386,9 @@ echo "output" | tg-bot send -
 
 ```mermaid
 graph LR
-    subgraph Your Scripts
+    subgraph Scripts["Your Scripts"]
         CRON["Cron job"]
-        CI["CI/CD pipeline"]
+        CI["CI pipeline"]
         DEPLOY["Deploy script"]
         MONITOR["Monitoring"]
     end
@@ -397,11 +397,11 @@ graph LR
     API["Telegram API"]
     PHONE["Your Phone"]
 
-    CRON -->|"tg-send 'backup done'"| TGSEND
-    CI -->|"tg-send 'build passed'"| TGSEND
-    DEPLOY -->|"tg-send 'deployed v2.1'"| TGSEND
-    MONITOR -->|"tg-send 'disk 95%'"| TGSEND
-    TGSEND -->|HTTPS| API
+    CRON -->|"backup done"| TGSEND
+    CI -->|"build passed"| TGSEND
+    DEPLOY -->|"deployed v2.1"| TGSEND
+    MONITOR -->|"disk 95%"| TGSEND
+    TGSEND -->|"HTTPS"| API
     API --> PHONE
 ```
 
@@ -419,38 +419,35 @@ graph TB
 
     subgraph Server["Your Server"]
         BOT["bot.py — Long-polling daemon"]
-        AUTH["Auth Check — user and chat allowlists"]
+        AUTH["Auth Check"]
         REG["CommandRegistry"]
-        TRACK["Task Tracker — running tasks"]
+        TRACK["Task Tracker"]
 
         subgraph Cmds["Commands"]
-            REV["review — review.py"]
-            STAT["status — status.py"]
-            RUNCMD["run — run.py"]
-            ASKCMD["ask — ask.py"]
-            CUSTOM["Your custom commands"]
+            REV["review"]
+            STAT["status"]
+            RUNCMD["run"]
+            ASKCMD["ask"]
+            CUSTOM["custom"]
         end
 
         subgraph Tools["External Tools"]
-            RT["review-tool CLI"]
+            RT["review-tool"]
             CLAUDE["claude CLI"]
-            SHELL["Shell commands"]
+            SHELL["shell"]
             CGS["code_graph_search"]
             GH["gh CLI"]
         end
-    end
 
-        subgraph SendCLI["tg-send CLI"]
-            TGSEND2["tg-send — scripts, cron, CI"]
-        end
+        TGSEND2["tg-send CLI"]
     end
 
     subgraph GH_Cloud["GitHub"]
         PR["Pull Requests"]
     end
 
-    TG <-->|"HTTPS long-poll"| BOT
-    TGSEND2 -->|"HTTPS direct"| TG
+    TG <-->|"long-poll"| BOT
+    TGSEND2 -->|"direct HTTPS"| TG
     BOT --> AUTH
     AUTH --> REG
     REG --> REV
@@ -459,9 +456,9 @@ graph TB
     REG --> ASKCMD
     REG --> CUSTOM
     BOT --- TRACK
-    REV -->|"subprocess"| RT
-    ASKCMD -->|"subprocess"| CLAUDE
-    RUNCMD -->|"subprocess"| SHELL
+    REV --> RT
+    ASKCMD --> CLAUDE
+    RUNCMD --> SHELL
     RT --> CGS
     RT --> GH
     GH --> PR
@@ -508,37 +505,39 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    subgraph CLI["__main__.py (CLI)"]
-        START[start]
-        SETUP[setup]
-        CMDS[commands]
-        CFG[config]
+    subgraph CLI["__main__.py"]
+        START["start"]
+        SETUP["setup"]
+        CMDS["commands"]
+        CFG["config"]
+        SEND["send"]
     end
 
     subgraph Core
-        BOT[bot.py<br/>Telegram daemon]
-        CONFIG[config.py<br/>Pydantic models]
-        MODELS[models.py<br/>TaskResult, etc.]
+        BOT["bot.py"]
+        SENDCLI["send_cli.py"]
+        CONFIG["config.py"]
+        MODELS["models.py"]
     end
 
     subgraph CommandFramework["commands/"]
-        INIT["__init__.py<br/>BaseCommand ABC<br/>CommandRegistry"]
-        REVIEW[review.py]
-        STATUS[status.py]
-        RUN_CMD[run.py]
-        ASK_CMD[ask.py]
+        INIT["__init__.py"]
+        REVIEW["review.py"]
+        STATUS["status.py"]
+        RUN_CMD["run.py"]
+        ASK_CMD["ask.py"]
     end
 
     START --> BOT
     SETUP --> CONFIG
+    SEND --> SENDCLI
     BOT --> INIT
     BOT --> CONFIG
     BOT --> MODELS
-    INIT --> REVIEW & STATUS & RUN_CMD & ASK_CMD
-    REVIEW --> MODELS
-    STATUS --> MODELS
-    RUN_CMD --> MODELS
-    ASK_CMD --> MODELS
+    INIT --> REVIEW
+    INIT --> STATUS
+    INIT --> RUN_CMD
+    INIT --> ASK_CMD
 ```
 
 ### Config Loading
@@ -558,28 +557,26 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    MSG[Incoming Telegram Message] --> AUTH{Auth Check}
+    MSG["Incoming Message"] --> AUTH{"Auth Check"}
 
-    AUTH -->|"allowed_user_ids
-    not empty"| UID{user_id in list?}
-    AUTH -->|"allowed_chat_ids
-    not empty"| CID{chat_id in list?}
-    AUTH -->|both empty| WARN[Allow all - DANGEROUS]
+    AUTH -->|"user_ids set"| UID{"user_id in list?"}
+    AUTH -->|"chat_ids set"| CID{"chat_id in list?"}
+    AUTH -->|"both empty"| WARN["Allow all - DANGEROUS"]
 
-    UID -->|no| DENY[Deny + log warning]
-    UID -->|yes| PASS
-    CID -->|no| DENY
-    CID -->|yes| PASS
+    UID -->|"no"| DENY["Deny + log"]
+    UID -->|"yes"| PASS
+    CID -->|"no"| DENY
+    CID -->|"yes"| PASS
 
-    PASS[Authorized] --> ROUTE{Route command}
+    PASS["Authorized"] --> ROUTE{"Route command"}
 
-    ROUTE -->|/run| ALLOWLIST{Command in<br/>allowed_commands?}
-    ALLOWLIST -->|no| REJECT[Reject - unknown command]
-    ALLOWLIST -->|yes| EXEC[Execute from allowlist]
+    ROUTE -->|"run"| ALLOWLIST{"In allowed_commands?"}
+    ALLOWLIST -->|"no"| REJECT["Reject"]
+    ALLOWLIST -->|"yes"| EXEC["Execute"]
 
-    ROUTE -->|/review| REVIEW[Run review-tool]
-    ROUTE -->|/ask| ASK[Run claude CLI]
-    ROUTE -->|/status| STATUS[Read-only checks]
+    ROUTE -->|"review"| REVIEW["Run review-tool"]
+    ROUTE -->|"ask"| ASK["Run claude CLI"]
+    ROUTE -->|"status"| STATUS["Read-only checks"]
 
     style DENY fill:#f66,color:#fff
     style REJECT fill:#f66,color:#fff
@@ -643,8 +640,8 @@ classDiagram
         +description: str*
         +usage: str
         +is_long_running: bool
-        +validate_args(args: str) str|None
-        +execute(args: str, config: AppConfig) TaskResult*
+        +validate_args(args) str
+        +execute(args, config) TaskResult*
     }
 
     class CommandRegistry {
@@ -927,10 +924,10 @@ docker run -d \
 
 ```mermaid
 flowchart LR
-    MSG[Message] --> CHECK{Auth}
-    CHECK -->|user in allowlist| OK[Execute]
-    CHECK -->|user NOT in allowlist| DENY[Reject]
-    CHECK -->|allowlist empty| WARN[Allow all]
+    MSG["Message"] --> CHECK{"Auth"}
+    CHECK -->|"in allowlist"| OK["Execute"]
+    CHECK -->|"not in allowlist"| DENY["Reject"]
+    CHECK -->|"allowlist empty"| WARN["Allow all"]
 
     style DENY fill:#f66,color:#fff
     style WARN fill:#fa0,color:#fff
