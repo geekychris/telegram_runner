@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Telegram Runner logo" width="180">
+</p>
+
 # telegram-harness
 
 Extensible Telegram bot that lets you run commands remotely from your phone. Send a message to your bot and it executes tasks on your server — AI code reviews, shell commands, system health checks, or questions to Claude — and replies with the results.
